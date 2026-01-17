@@ -189,90 +189,33 @@ public class BasicController {
 
     @PostMapping("/validateOrder")
     public ResponseEntity<OrderValidationResult> validateOrder(@RequestBody Order order) {
-
         OrderValidationResult result = new OrderValidationResult();
-
         try {
-        /* =========================
-           REQUEST SHAPE VALIDATION
-           ========================= */
-            if (order == null
-                    || order.getCreditCardInformation() == null
-                    || order.getPizzasInOrder() == null
-                    || order.getOrderDate() == null) {
+            if (order == null || order.getCreditCardInformation() == null
+                    || order.getPizzasInOrder() == null || order.getOrderDate() == null)
                 return ResponseEntity.badRequest().build();
-            }
+            var card = order.getCreditCardInformation();
 
-            if (order.getCreditCardInformation().getCreditCardNumber() == null
-                    || order.getCreditCardInformation().getCreditCardExpiry() == null
-                    || order.getCreditCardInformation().getCvv() == null) {
+            if (card.getCreditCardNumber() == null
+                    || card.getCreditCardExpiry() == null
+                    || card.getCvv() == null)
                 return ResponseEntity.badRequest().build();
-            }
 
-        /* =========================
-           EMPTY ORDER CHECK
-           ========================= */
-            if (order.getPizzasInOrder().isEmpty()) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.EMPTY_ORDER);
-                return ResponseEntity.ok(result);
-            }
+            if (order.getPizzasInOrder().isEmpty())
+                return invalid(result, OrderValidationCode.EMPTY_ORDER);
 
-        /* =========================
-           EXPIRY DATE VALIDATION
-           ========================= */
-            try {
-                String expiry = order.getCreditCardInformation().getCreditCardExpiry();
+            if (!isValidExpiry(card.getCreditCardExpiry()))
+                return invalid(result, OrderValidationCode.EXPIRY_DATE_INVALID);
 
-                if (!expiry.matches("\\d{2}/\\d{2}")) {
-                    throw new IllegalArgumentException();
-                }
+            if (!card.getCreditCardNumber().matches("\\d{16}"))
+                return invalid(result, OrderValidationCode.CARD_NUMBER_INVALID);
 
-                YearMonth expiryMonth = YearMonth.parse(expiry, DateTimeFormatter.ofPattern("MM/yy"));
-                YearMonth currentMonth = YearMonth.now();
+            if (!card.getCvv().matches("\\d{3}"))
+                return invalid(result, OrderValidationCode.CVV_INVALID);
 
-                if (expiryMonth.isBefore(currentMonth)) {
-                    result.setOrderStatus(OrderStatus.INVALID);
-                    result.setOrderValidationCode(OrderValidationCode.EXPIRY_DATE_INVALID);
-                    return ResponseEntity.ok(result);
-                }
+            if (order.getPizzasInOrder().size() > SystemConstants.MAX_PIZZAS_PER_ORDER)
+                return invalid(result, OrderValidationCode.MAX_PIZZA_COUNT_EXCEEDED);
 
-            } catch (Exception e) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.EXPIRY_DATE_INVALID);
-                return ResponseEntity.ok(result);
-            }
-
-        /* =========================
-           CARD NUMBER VALIDATION
-           ========================= */
-            if (!order.getCreditCardInformation().getCreditCardNumber().matches("\\d{16}")) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.CARD_NUMBER_INVALID);
-                return ResponseEntity.ok(result);
-            }
-
-        /* =========================
-           CVV VALIDATION
-           ========================= */
-            if (!order.getCreditCardInformation().getCvv().matches("\\d{3}")) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.CVV_INVALID);
-                return ResponseEntity.ok(result);
-            }
-
-        /* =========================
-           PIZZA COUNT VALIDATION
-           ========================= */
-            if (order.getPizzasInOrder().size() > SystemConstants.MAX_PIZZAS_PER_ORDER) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.MAX_PIZZA_COUNT_EXCEEDED);
-                return ResponseEntity.ok(result);
-            }
-
-        /* =========================
-           ORDER DATE VALIDATION
-           ========================= */
             LocalDate orderDate;
             try {
                 orderDate = LocalDate.parse(order.getOrderDate());
@@ -280,72 +223,58 @@ public class BasicController {
                 return ResponseEntity.badRequest().build();
             }
 
-            DayOfWeek orderDay = orderDate.getDayOfWeek();
-
-        /* =========================
-           PIZZA + RESTAURANT CHECKS
-           ========================= */
+            DayOfWeek day = orderDate.getDayOfWeek();
             String restaurantName = null;
 
             for (Order.Pizza pizza : order.getPizzasInOrder()) {
-                Restaurant restaurant = findRestaurantByPizza(pizza.getName());
+                Restaurant r = findRestaurantByPizza(pizza.getName());
 
-                if (restaurant == null) {
-                    result.setOrderStatus(OrderStatus.INVALID);
-                    result.setOrderValidationCode(OrderValidationCode.PIZZA_NOT_DEFINED);
-                    return ResponseEntity.ok(result);
-                }
+                if (r == null)
+                    return invalid(result, OrderValidationCode.PIZZA_NOT_DEFINED);
 
-                if (!isPriceValid(pizza, restaurant)) {
-                    result.setOrderStatus(OrderStatus.INVALID);
-                    result.setOrderValidationCode(OrderValidationCode.PRICE_FOR_PIZZA_INVALID);
-                    return ResponseEntity.ok(result);
-                }
+                if (!isPriceValid(pizza, r))
+                    return invalid(result, OrderValidationCode.PRICE_FOR_PIZZA_INVALID);
 
-                if (restaurantName == null) {
-                    restaurantName = restaurant.getName();
-                } else if (!restaurant.getName().equals(restaurantName)) {
-                    result.setOrderStatus(OrderStatus.INVALID);
-                    result.setOrderValidationCode(OrderValidationCode.PIZZA_FROM_MULTIPLE_RESTAURANTS);
-                    return ResponseEntity.ok(result);
-                }
+                if (restaurantName == null)
+                    restaurantName = r.getName();
+                else if (!restaurantName.equals(r.getName()))
+                    return invalid(result, OrderValidationCode.PIZZA_FROM_MULTIPLE_RESTAURANTS);
 
-                if (!restaurant.getOpeningDays().contains(orderDay.toString().toUpperCase())) {
-                    result.setOrderStatus(OrderStatus.INVALID);
-                    result.setOrderValidationCode(OrderValidationCode.RESTAURANT_CLOSED);
-                    return ResponseEntity.ok(result);
-                }
+                if (!r.getOpeningDays().contains(day.toString()))
+                    return invalid(result, OrderValidationCode.RESTAURANT_CLOSED);
             }
 
-        /* =========================
-           TOTAL PRICE VALIDATION
-           ========================= */
-            int calculatedTotal = order.getPizzasInOrder().stream()
+            int expectedTotal = order.getPizzasInOrder().stream()
                     .mapToInt(Order.Pizza::getPriceInPence)
-                    .sum();
+                    .sum() + SystemConstants.ORDER_CHARGE_IN_PENCE;
 
-            int expectedTotal = calculatedTotal + SystemConstants.ORDER_CHARGE_IN_PENCE;
+            if (expectedTotal != order.getPriceTotalInPence())
+                return invalid(result, OrderValidationCode.TOTAL_INCORRECT);
 
-            if (!Integer.valueOf(expectedTotal).equals(order.getPriceTotalInPence())) {
-                result.setOrderStatus(OrderStatus.INVALID);
-                result.setOrderValidationCode(OrderValidationCode.TOTAL_INCORRECT);
-                return ResponseEntity.ok(result);
-            }
-
-        /* =========================
-           VALID ORDER
-           ========================= */
             result.setOrderStatus(OrderStatus.VALID);
             result.setOrderValidationCode(OrderValidationCode.NO_ERROR);
             return ResponseEntity.ok(result);
 
         } catch (Exception e) {
-            e.printStackTrace();
             result.setOrderStatus(OrderStatus.INVALID);
             result.setOrderValidationCode(OrderValidationCode.GENERIC_ERROR);
             return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(result);
         }
     }
+
+    private ResponseEntity<OrderValidationResult> invalid(
+            OrderValidationResult result, OrderValidationCode code) {
+        result.setOrderStatus(OrderStatus.INVALID);
+        result.setOrderValidationCode(code);
+        return ResponseEntity.ok(result);
+    }
+
+    private boolean isValidExpiry(String expiry) {
+        if (!expiry.matches("\\d{2}/\\d{2}")) return false;
+        YearMonth exp = YearMonth.parse(expiry, DateTimeFormatter.ofPattern("MM/yy"));
+        return !exp.isBefore(YearMonth.now());
+    }
+
 
 
     @PostMapping("/calcDeliveryPath")

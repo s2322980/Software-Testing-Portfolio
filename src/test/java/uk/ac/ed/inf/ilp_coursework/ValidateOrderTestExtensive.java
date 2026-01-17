@@ -21,9 +21,6 @@ public class ValidateOrderTestExtensive {
     @Autowired
     private MockMvc mockMvc;
 
-    /* =======================
-       FR-OV-03 — CVV
-       ======================= */
 
     @Test
     void testValidCvv123() throws Exception {
@@ -117,9 +114,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("CVV_INVALID"));
     }
 
-    /* =======================
-       FR-OV-01 — Expiry Date (MM/YY, not before 01/26)
-       ======================= */
 
     @Test
     void testValidExpiry0127() throws Exception {
@@ -213,9 +207,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("EXPIRY_DATE_INVALID"));
     }
 
-    /* =======================
-       FR-OV-02 — Card Number (length 16 numeric)
-       ======================= */
 
     @Test
     void testValidCardNumber16Digits() throws Exception {
@@ -286,10 +277,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("CARD_NUMBER_INVALID"));
     }
 
-    /* =======================
-       FR-OV-08 — Order Cost (pizza total + delivery fee)
-       Assumes delivery fee is £1 = 100p
-       ======================= */
 
     @Test
     void testValidTotalIncludesDeliveryFee() throws Exception {
@@ -337,9 +324,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("TOTAL_INCORRECT"));
     }
 
-    /* =======================
-       FR-OV-04 / FR-OV-05 — Pizza Count (1..4)
-       ======================= */
 
     @Test
     void testBoundaryValidPizzaCountOne() throws Exception {
@@ -438,9 +422,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("MAX_PIZZA_COUNT_EXCEEDED"));
     }
 
-    /* =======================
-       FR-OV-06 / FR-OV-07 — Source of Pizza
-       ======================= */
 
     @Test
     void testValidAllPizzasSameRestaurant() throws Exception {
@@ -513,10 +494,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("PIZZA_FROM_MULTIPLE_RESTAURANTS"));
     }
 
-    /* =======================
-       FR-OV-09 — Restaurant Closed (date-based)
-       ======================= */
-
     @Test
     void testInvalidRestaurantClosedOnOrderDate() throws Exception {
         String body = """
@@ -540,9 +517,6 @@ public class ValidateOrderTestExtensive {
                 .andExpect(jsonPath("$.orderValidationCode").value("RESTAURANT_CLOSED"));
     }
 
-    /* =======================
-       FR-OV-10 — Order Date Invalid (interpreted as invalid format)
-       ======================= */
 
     @Test
     void testInvalidOrderDateFormatReturnsBadRequest() throws Exception {
@@ -564,10 +538,6 @@ public class ValidateOrderTestExtensive {
         mockMvc.perform(post("/validateOrder").contentType(MediaType.APPLICATION_JSON).content(body))
                 .andExpect(status().isBadRequest());
     }
-
-    /* =======================
-       Extra robustness tests (still table-aligned: “syntactically invalid”)
-       ======================= */
 
     @Test
     void testMissingCreditCardInformationReturnsBadRequest() throws Exception {
